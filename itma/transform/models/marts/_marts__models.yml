@@ -1,0 +1,77 @@
+version: 2
+
+models:
+  - name: fct_delay_index
+    description: "Daily on-time performance and delay metrics per TransJakarta route"
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns:
+            - route_id
+            - service_date
+    columns:
+      - name: route_id
+        description: "Route identifier"
+        tests:
+          - not_null
+      - name: service_date
+        description: "Date of transit service"
+        tests:
+          - not_null
+      - name: total_trips
+        description: "Count of trips on this route for the date"
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 1
+      - name: otp_percentage
+        description: "On-time performance percentage (0 to 100)"
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 0
+              max_value: 100
+
+  - name: fct_route_density
+    description: "Average congestion and vehicle speed on road segments linked to transit routes during peak hours"
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns:
+            - route_id
+            - event_date
+    columns:
+      - name: route_id
+        description: "Route identifier"
+        tests:
+          - not_null
+      - name: event_date
+        description: "Date of traffic observations"
+        tests:
+          - not_null
+      - name: avg_peak_congestion_score
+        description: "Average congestion score during peak hours (1 to 10)"
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 1
+              max_value: 10
+
+  - name: mart_delay_vs_congestion
+    description: "Combined analytics linking bus delay metrics with road congestion indicators"
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns:
+            - route_id
+            - service_date
+    columns:
+      - name: route_id
+        description: "Route identifier"
+        tests:
+          - not_null
+      - name: service_date
+        description: "Date of operational comparison"
+        tests:
+          - not_null
+      - name: corridor_health_diagnosis
+        description: "Categorical diagnostic of corridor health"
+        tests:
+          - not_null

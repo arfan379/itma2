@@ -1,0 +1,9 @@
+requests>=2.31.0
+kafka-python>=2.0.2
+psycopg2-binary>=2.9.9
+numpy>=1.26.0
+pyyaml>=6.0.1
+dbt-postgres>=1.7.0
+pytest>=8.0.0
+flake8>=7.0.0
+apache-airflow>=2.10.0

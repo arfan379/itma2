@@ -1,0 +1,17 @@
+# Image Airflow khusus ITMA.
+# Image resmi apache/airflow TIDAK berisi dbt, kafka-python, dan numpy,
+# padahal DAG itma_daily memanggil semuanya.
+FROM apache/airflow:2.8.2-python3.11
+
+USER airflow
+
+# dbt dipasang di virtualenv terpisah supaya dependensinya tidak bentrok dengan Airflow.
+RUN python -m venv /opt/airflow/dbt_venv \
+    && /opt/airflow/dbt_venv/bin/pip install --no-cache-dir "dbt-postgres>=1.7,<1.10"
+
+# Library yang dipakai langsung oleh task Python (src/ingestion, src/simulator).
+# numpy dibatasi <2 agar tetap cocok dengan pandas bawaan Airflow 2.8.
+RUN pip install --no-cache-dir kafka-python pyyaml requests "numpy<2"
+
+# DAG memanggil dbt lewat variabel ini.
+ENV DBT_BIN=/opt/airflow/dbt_venv/bin/dbt

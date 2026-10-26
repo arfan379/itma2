@@ -1,0 +1,68 @@
+version: 2
+
+sources:
+  - name: raw
+    schema: raw
+    description: "Bronze raw layer storing GTFS schedules and traffic telemetry events"
+    tables:
+      - name: raw_schedules
+        description: "Simulated transit schedules with scheduled and actual arrival timestamps"
+        columns:
+          - name: trip_id
+            description: "Unique trip identifier"
+            tests:
+              - not_null
+          - name: stop_id
+            description: "Stop identifier"
+            tests:
+              - not_null
+          - name: service_date
+            description: "Operational transit date"
+            tests:
+              - not_null
+
+      - name: raw_traffic
+        description: "Real-time or simulated traffic telemetry per road segment"
+        columns:
+          - name: segment_id
+            description: "Road segment identifier"
+            tests:
+              - not_null
+          - name: event_time
+            description: "Timestamp of telemetry reading"
+            tests:
+              - not_null
+
+      - name: raw_gtfs_routes
+        description: "Raw TransJakarta routes feed"
+        columns:
+          - name: route_id
+            tests:
+              - not_null
+              - unique
+
+      - name: raw_gtfs_stops
+        description: "Raw TransJakarta stops feed"
+        columns:
+          - name: stop_id
+            tests:
+              - not_null
+              - unique
+
+      - name: raw_gtfs_trips
+        description: "Raw TransJakarta trips feed"
+        columns:
+          - name: trip_id
+            tests:
+              - not_null
+              - unique
+
+      - name: raw_gtfs_stop_times
+        description: "Raw TransJakarta stop sequence and scheduled times"
+        columns:
+          - name: trip_id
+            tests:
+              - not_null
+          - name: stop_sequence
+            tests:
+              - not_null

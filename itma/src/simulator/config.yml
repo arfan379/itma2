@@ -1,0 +1,32 @@
+simulator:
+  seed_base: 42
+  
+  # Operating hours (WIB)
+  operating_hours:
+    start_hour: 5
+    end_hour: 23
+
+  # Peak hours definition (WIB)
+  peak_hours:
+    morning: [6, 9]     # 06:00 - 09:00 WIB
+    evening: [17, 20]   # 17:00 - 20:00 WIB
+
+  # Delay simulation parameters
+  delay:
+    base_mean_minutes: 2.0
+    base_std_minutes: 2.5
+    peak_multiplier: 2.8           # Delay expands significantly during peak hours
+    incident_probability: 0.03     # 3% chance of significant operational incident
+    incident_delay_range: [15.0, 45.0]
+    outlier_probability: 0.005     # 0.5% chance of early arrival outlier (< -30 mins)
+    outlier_min_minutes: -35.0
+
+  # Traffic simulation parameters
+  traffic:
+    free_flow_speed_kmh: 50.0
+    free_flow_std: 5.0
+    peak_speed_reduction_ratio: 0.55  # Speed drops by ~55% during peak hours (to ~22 km/h)
+    off_peak_speed_reduction_ratio: 0.15 # Speed drops by ~15% off-peak
+    event_interval_minutes: 15
+    # CATATAN: delay bus dan kecepatan jalan disimulasikan TERPISAH (tidak saling mempengaruhi).
+    # Keterkaitan keduanya di mart hanya kebetulan sama-sama naik di jam sibuk.

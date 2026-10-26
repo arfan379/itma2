@@ -1,0 +1,80 @@
+version: 2
+
+models:
+  - name: stg_schedules
+    description: "Standardized TransJakarta schedule facts with calculated delays and peak hour flags in WIB"
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns:
+            - trip_id
+            - stop_id
+            - service_date
+    columns:
+      - name: trip_id
+        description: "Trip identifier"
+        tests:
+          - not_null
+      - name: route_id
+        description: "Route identifier"
+        tests:
+          - not_null
+          - relationships:
+              to: source('raw', 'raw_gtfs_routes')
+              field: route_id
+      - name: stop_id
+        description: "Stop identifier"
+        tests:
+          - not_null
+      - name: service_date
+        description: "Service date of trip"
+        tests:
+          - not_null
+      - name: delay_minutes
+        description: "Delay in minutes relative to scheduled arrival"
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: -120
+              max_value: 300
+      - name: is_delayed
+        description: "Flag indicating delay > 5 minutes"
+        tests:
+          - not_null
+      - name: is_outlier
+        description: "Flag indicating extreme early arrival (< -30 min)"
+        tests:
+          - not_null
+
+  - name: stg_traffic
+    description: "Standardized traffic telemetry with 1-10 congestion scores and WIB peak hour flags"
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns:
+            - segment_id
+            - event_time_wib
+    columns:
+      - name: segment_id
+        description: "Road segment identifier"
+        tests:
+          - not_null
+      - name: event_time
+        description: "Timestamp of reading"
+        tests:
+          - not_null
+      - name: congestion_score
+        description: "Congestion score from 1 (free-flow) to 10 (standstill)"
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 1
+              max_value: 10
+      - name: speed_ratio
+        description: "Ratio of current speed to free flow speed"
+        tests:
+          - dbt_utils.accepted_range:
+              min_value: 0
+              max_value: 2
+      - name: speed_kmh
+        description: "Measured vehicle speed in km/h"
+        tests:
+          - not_null

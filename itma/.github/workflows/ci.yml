@@ -1,0 +1,104 @@
+name: ITMA CI Pipeline
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint-and-test:
+    name: Code Quality & Unit Tests
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: timescale/timescaledb:latest-pg15
+        env:
+          POSTGRES_USER: itma_user
+          POSTGRES_PASSWORD: itma_password
+          POSTGRES_DB: itma_db
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Initialize Database Schemas
+        run: |
+          PGPASSWORD=itma_password psql -h localhost -U itma_user -d itma_db -f infra/init_db.sql
+
+      - name: Run Flake8 Linter
+        run: |
+          flake8 src/ tests/ dags/ --max-line-length 120
+
+      - name: Run PyTest
+        env:
+          POSTGRES_HOST: localhost
+          POSTGRES_PORT: 5432
+          POSTGRES_USER: itma_user
+          POSTGRES_PASSWORD: itma_password
+          POSTGRES_DB: itma_db
+        run: |
+          pytest tests/ -v --tb=short
+
+      - name: Install dbt Dependencies
+        run: |
+          cd transform && dbt deps --profiles-dir .
+
+      - name: Seed dbt Tables
+        run: |
+          cd transform && dbt seed --profiles-dir .
+
+      - name: Load Sample GTFS into Bronze (synthetic feed for CI)
+        env:
+          POSTGRES_HOST: localhost
+          POSTGRES_PORT: 5432
+          POSTGRES_USER: itma_user
+          POSTGRES_PASSWORD: itma_password
+          POSTGRES_DB: itma_db
+        run: |
+          python -m src.ingestion.sample_gtfs --out /tmp/sample_gtfs.zip
+          python src/ingestion/api_extractor.py --zip-path /tmp/sample_gtfs.zip
+
+      - name: Generate Test Schedule & Telemetry Data
+        env:
+          POSTGRES_HOST: localhost
+          POSTGRES_PORT: 5432
+          POSTGRES_USER: itma_user
+          POSTGRES_PASSWORD: itma_password
+          POSTGRES_DB: itma_db
+        run: |
+          python src/simulator/delay_simulator.py --date $(date +%Y-%m-%d)
+          python src/simulator/telemetry_producer.py --date $(date +%Y-%m-%d) --no-kafka
+          python -c "
+          from src.simulator.telemetry_producer import generate_traffic_events
+          from src.ingestion.kafka_consumer import ingest_direct_events
+          events = generate_traffic_events('$(date +%Y-%m-%d)')
+          ingest_direct_events(events)
+          "
+
+      - name: Run dbt Staging & Marts
+        run: |
+          cd transform && dbt run --profiles-dir .
+
+      - name: Run dbt Data Quality Tests
+        run: |
+          cd transform && dbt test --profiles-dir .

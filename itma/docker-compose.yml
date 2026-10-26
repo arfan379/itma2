@@ -1,0 +1,165 @@
+version: '3.8'
+
+x-airflow-common: &airflow-common
+  build:
+    context: .
+    dockerfile: Dockerfile.airflow
+  image: itma-airflow:latest
+  environment:
+    AIRFLOW__CORE__EXECUTOR: LocalExecutor
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER:-itma_user}:${POSTGRES_PASSWORD:-itma_password}@postgres:5432/${POSTGRES_DB:-itma_db}
+    AIRFLOW__CORE__FERNET_KEY: ''
+    AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: 'false'
+    AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
+    AIRFLOW__API__AUTH_BACKENDS: 'airflow.api.auth.backend.basic_auth,airflow.api.auth.backend.session'
+    POSTGRES_USER: ${POSTGRES_USER:-itma_user}
+    POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-itma_password}
+    POSTGRES_DB: ${POSTGRES_DB:-itma_db}
+    POSTGRES_HOST: postgres
+    POSTGRES_PORT: 5432
+    KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+    KAFKA_TOPIC: transport-telemetry
+    PYTHONPATH: /opt/airflow
+  volumes:
+    - ./dags:/opt/airflow/dags
+    - ./src:/opt/airflow/src
+    - ./transform:/opt/airflow/transform
+    - ./infra:/opt/airflow/infra
+    - airflow_logs:/opt/airflow/logs
+  user: "${AIRFLOW_UID:-50000}:0"
+  depends_on:
+    postgres:
+      condition: service_healthy
+  networks:
+    - itma-network
+
+services:
+  postgres:
+    image: timescale/timescaledb:latest-pg15
+    container_name: itma-postgres
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-itma_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-itma_password}
+      POSTGRES_DB: ${POSTGRES_DB:-itma_db}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./infra/init_db.sql:/docker-entrypoint-initdb.d/01_init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-itma_user} -d ${POSTGRES_DB:-itma_db}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - itma-network
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    container_name: itma-zookeeper
+    restart: always
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - "2181:2181"
+    networks:
+      - itma-network
+
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: itma-kafka
+    restart: always
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-broker-api-versions --bootstrap-server localhost:9092 || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+    networks:
+      - itma-network
+
+  kafka-init:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: itma-kafka-init
+    depends_on:
+      kafka:
+        condition: service_healthy
+    entrypoint: [ "bash", "-c" ]
+    command: |
+      "
+      echo -e 'Creating Kafka topic: transport-telemetry'
+      kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic transport-telemetry --replication-factor 1 --partitions 1
+      echo -e 'Successfully created Kafka topics:'
+      kafka-topics --bootstrap-server kafka:29092 --list
+      "
+    networks:
+      - itma-network
+
+  airflow-init:
+    <<: *airflow-common
+    container_name: itma-airflow-init
+    entrypoint: [ "bash", "-c" ]
+    command:
+      - |
+        airflow db init &&
+        airflow users create \
+          --username ${_AIRFLOW_WWW_USER_USERNAME:-admin} \
+          --firstname ITMA \
+          --lastname Admin \
+          --role Admin \
+          --email admin@itma.local \
+          --password ${_AIRFLOW_WWW_USER_PASSWORD:-admin} || true
+    restart: "no"
+
+  airflow-webserver:
+    <<: *airflow-common
+    depends_on:
+      postgres:
+        condition: service_healthy
+      airflow-init:
+        condition: service_completed_successfully
+    container_name: itma-airflow-webserver
+    command: webserver
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    restart: always
+
+  airflow-scheduler:
+    <<: *airflow-common
+    depends_on:
+      postgres:
+        condition: service_healthy
+      airflow-init:
+        condition: service_completed_successfully
+    container_name: itma-airflow-scheduler
+    command: scheduler
+    restart: always
+
+volumes:
+  postgres_data:
+    driver: local
+  airflow_logs:
+    driver: local
+
+networks:
+  itma-network:
+    name: itma-network
+    driver: bridge
